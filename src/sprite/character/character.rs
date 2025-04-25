@@ -1,6 +1,6 @@
 use ratatui::prelude::Backend;
 
-use crate::Animation;
+use crate::animator::Animation;
 
 /// The `Character` trait is for state actions that a character can perform
 pub(crate) trait Character<B: Backend> {

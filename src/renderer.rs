@@ -7,10 +7,10 @@ use std::{ops::Range, time::Duration};
 
 use crate::{
     layout::{
-        Column, Coordinate, Direction, MirrorDirection, Row, PIXEL_MAX_HEIGHT, PIXEL_MAX_WIDTH,
+        Column, Coordinate, Direction, MirrorDirection, Mirrorable, Row, PIXEL_MAX_HEIGHT,
+        PIXEL_MAX_WIDTH,
     },
     palette::ColorScheme,
-    Mirrorable,
 };
 
 /// The `Renderer` trait representing a renderable UI element.

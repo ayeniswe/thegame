@@ -19,7 +19,7 @@ pub(crate) const PIXEL_MAX_WIDTH: u16 = 2;
 ///
 /// `Coordinate` defines a location using `x` (horizontal) and `y` (vertical)
 /// values in character cell units.
-#[derive(Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Copy, Default)]
 pub(crate) struct Coordinate {
     /// Horizontal position (columns).
     pub(crate) x: f32,

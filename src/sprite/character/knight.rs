@@ -3,11 +3,11 @@ use std::{io::Stdout, time::Duration};
 
 use super::character::Character;
 use crate::{
+    animator::Animation,
     layout::{Direction, Mirrorable},
     palette::{CheckPattern, ColorScheme, Stroke, DARK_BROWN, LIGHT_BROWN, LIGHT_GRAY, LIGHT_TAN},
     renderer::{Frame, Pixel},
     sprite::sprite::Sprite,
-    Animation,
 };
 
 macro_rules! impl_character_default_for {
