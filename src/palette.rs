@@ -1,11 +1,11 @@
 use ratatui::style::Color;
 
-use crate::layout::{Column, Direction, Row};
+use crate::layout::Direction;
 
+pub(crate) const DARK_BROWN: Color = Color::Indexed(130);
+pub(crate) const LIGHT_BROWN: Color = Color::Indexed(137);
+pub(crate) const MIDNIGHT: Color = Color::Indexed(232);
 pub(crate) const LIGHT_GRAY: Color = Color::Indexed(248);
-pub(crate) const DARK_BROWN: Color = Color::Indexed(52);
-pub(crate) const LIGHT_TAN: Color = Color::Indexed(187);
-pub(crate) const LIGHT_BROWN: Color = Color::Indexed(130);
 
 /// Defines the color styling for a `Pixel`.
 #[derive(Clone)]
