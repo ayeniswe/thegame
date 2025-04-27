@@ -6,6 +6,10 @@ use crate::animator::Animation;
 pub(crate) trait Character<B: Backend> {
     /// The character's idle animation.
     fn idle(&mut self) -> &mut dyn Animation<B>;
-    /// The character's walk animation.
-    fn walk(&mut self) -> &mut dyn Animation<B>;
+    /// The character's side walk animation.
+    fn side_walk(&mut self) -> &mut dyn Animation<B>;
+    /// The character's front walk animation.
+    fn front_walk(&mut self) -> &mut dyn Animation<B>;
+    /// The character's back walk animation.
+    fn back_walk(&mut self) -> &mut dyn Animation<B>;
 }
