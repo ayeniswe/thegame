@@ -1,30 +1,46 @@
+//! A module for handling 2D coordinates, movement directions, and mirroring transformations.
+//!
+//! This module includes definitions for a 2D coordinate system (`Coordinate`), movement directions
+//! (`Direction`), and mirroring transformations (`MirrorDirection`). It provides useful methods
+//! for working with pixel-based grids and transformations commonly used in rendering and manipulation
+//! of terminal UI elements.
+//!
+//! # Key Structures:
+//! - **Coordinate**: Represents a 2D position on a grid (with `x` for horizontal and `y` for vertical).
+//! - **Direction**: Defines movement along either the vertical or horizontal axis, measured in pixels.
+//! - **MirrorDirection**: Represents the transformation to mirror a coordinate either horizontally or vertically.
+//!
+//! # Key Features:
+//! - **Coordinate Operations**: Supports addition, addition assignment, and scalar multiplication for easy manipulation of coordinates.
+//! - **Direction Enum**: Provides an easy way to define movement or alignment along vertical or horizontal axes.
+//! - **Mirroring Transformation**: Offers the ability to mirror coordinates across an axis, useful for flipped rendering or effects.
+//!
+//! # Example Usage:
+//! ```rust
+//! // Creating a coordinate
+//! let point = Coordinate { x: 10.0, y: 5.0 };
+//!
+//! // Moving the point along both axes
+//! let movement = Coordinate { x: 2.0, y: -1.0 };
+//! let new_point = point + movement;
+//! assert_eq!(new_point, Coordinate { x: 12.0, y: 4.0 });
+//!
+//! // Mirroring a coordinate along the X axis
+//! let mirrored = Coordinate::mirror(10, 20); // Assuming width is 20
+//! assert_eq!(mirrored, 10); // Mirrored position (20 - 10)
+//! ```
 use std::ops::{Add, AddAssign, Mul};
 
-/// A row index in the terminal grid (Y-axis).
-pub(crate) type Row = u16;
-/// A column index in the terminal grid (X-axis).
-pub(crate) type Column = u16;
-
-/// The maximum height of a visual "pixel" in terminal cells.
-///
-/// Set to 1 since terminal rows are a single character tall.
-pub(crate) const PIXEL_MAX_HEIGHT: u16 = 1;
-/// The maximum width of a visual "pixel" in terminal cells.
-///
-/// Set to 2 to simulate a square aspect ratio, accounting for the
-/// typical 2:1 character width-to-height ratio in terminal fonts.
-pub(crate) const PIXEL_MAX_WIDTH: u16 = 2;
-
-/// Represents a 2D position on the terminal grid.
+/// Represents a 2D position on the pixels grid.
 ///
 /// `Coordinate` defines a location using `x` (horizontal) and `y` (vertical)
 /// values in character cell units.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Copy, Default)]
-pub(crate) struct Coordinate {
+pub struct Coordinate {
     /// Horizontal position (columns).
-    pub(crate) x: f32,
+    pub x: f32,
     /// Vertical position (rows).
-    pub(crate) y: f32,
+    pub y: f32,
 }
 impl From<(f32, f32)> for Coordinate {
     fn from(value: (f32, f32)) -> Self {
@@ -61,29 +77,29 @@ impl Mul<f32> for Coordinate {
     }
 }
 
-/// Represents a direction in the terminal coordinate system.
-#[derive(Clone)]
-pub(crate) enum Direction {
-    /// Movement or alignment along the vertical (Y) axis, measured in rows.
-    Vertical(Row),
-    /// Movement or alignment along the horizontal (X) axis, measured in columns.
-    Horizontal(Column),
+/// Represents a direction in the pixels coordinate system.
+#[derive(Clone, Copy)]
+pub enum Direction {
+    /// Movement or alignment along the vertical (Y) axis, measured in pixels.
+    Vertical(u16),
+    /// Movement or alignment along the horizontal (X) axis, measured in pixels.
+    Horizontal(u16),
 }
 
-/// Represents a mirroring transformation across an axis in the terminal coordinate system.
+/// Represents a mirroring transformation across an axis in the pixels coordinate system.
 #[derive(Clone)]
-pub(crate) enum MirrorDirection {
+pub enum MirrorDirectionValue {
     /// Flip across the horizontal axis, affecting the vertical (Y) direction.
-    FlipHorizontal(Column),
+    FlipHorizontal(u16),
     /// Flip across the vertical axis, affecting the horizontal (X) direction.
-    FlipVertical(Row),
+    FlipVertical(u16),
     None,
 }
-
-/// A `Mirrorable` that can compute mirrored positions along the X or Y axis.
-pub(crate) trait Mirrorable {
-    /// Mirroring coordinate point vertically/horizontally across axis
-    fn mirror(x: Column, width_height: u16) -> u16 {
-        width_height - x
-    }
+/// Represents a mirroring transformation across an axis in the pixels coordinate system.
+pub enum MirrorDirection {
+    /// Flip across the horizontal axis
+    FlipHorizontal,
+    /// Flip across the vertical axis
+    FlipVertical,
+    None,
 }

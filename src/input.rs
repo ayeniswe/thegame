@@ -1,97 +1,149 @@
-use crossbeam::channel::{unbounded, SendError, Sender};
-use crossterm::event::{Event, KeyCode};
-use log::{debug, error, warn};
-use std::{collections::HashMap, sync::Arc, thread};
-use thiserror::Error;
+//! A module for handling player input in a game, abstracting raw key events into high-level actions
+//! like movement in a 2D coordinate space.
+//!
+//! This module is responsible for:
+//! - Mapping physical keys (e.g., `WASD` or arrow keys) to high-level game actions (e.g., `PlayerMoveUp`).
+//! - Handling key press and release events to determine player actions, such as movement direction.
+//! - Supporting remapping of keys for customizable controls.
+//! - Translating key events into movement coordinates for game logic.
+//!
+//! # Example
+//!
+//! ```
+//! use crate::layout::{Coordinate, GameInputHandler, GameInput};
+//! use winit::keyboard::KeyCode;
+//!
+//! let mut input_handler = GameInputHandler::default();
+//! input_handler.update_binding(&GameInput::PlayerMoveUp, KeyCode::W.into());
+//! input_handler.update_binding(&GameInput::PlayerMoveLeft, KeyCode::A.into());
+//! input_handler.update_binding(&GameInput::PlayerMoveRight, KeyCode::D.into());
+//! input_handler.update_binding(&GameInput::PlayerMoveDown, KeyCode::S.into());
+//!
+//! // Test input for movement
+//! let input = Input::PhysicalKey(PhysicalKeyInfo {
+//!     state: ElementState::Pressed,
+//!     code: KeyCode::W.into(),
+//! });
+//! let movement = input_handler.to_coordinate(input);
+//! assert_eq!(movement, Some(Coordinate { x: 0.0, y: -1.0 }));
+//! ```
+use crate::layout::Coordinate;
+use std::collections::{HashMap, HashSet};
+use winit::{
+    event::ElementState,
+    keyboard::{KeyCode, PhysicalKey},
+};
 
-use crate::{layout::Coordinate, sync::Subscriber};
-
-/// The `EventReader` that can delegate to real
-/// event readers
-trait EventReader: Send + Sync {
-    /// Reads the next input event
-    fn read_event(&self) -> Result<Event, std::io::Error>;
-}
-
-/// Real-time input from the terminal using `crossterm` backend
-struct CrosstermEventReader;
-impl EventReader for CrosstermEventReader {
-    fn read_event(&self) -> Result<Event, std::io::Error> {
-        crossterm::event::read()
-    }
-}
-
-/// Centralizes terminal gameplay key input handling, mapping keys to in-game
-/// actions and broadcasting them to all subscribed components.
+/// Responsible for abstracting and centralizing input management for player controls.
+///
+/// `GameInputHandler` decouples raw key events from gameplay logic by mapping
+/// low-level key codes to high-level game actions. This allows the game to remain modular
+/// and adaptable, supporting remapping and cross-platform input handling with minimal friction.
 pub(crate) struct GameInputHandler {
-    mapping: HashMap<GameInput, KeyCode>,
-    subscribers: Vec<Sender<Coordinate>>,
-    event_reader: Arc<dyn EventReader>,
+    binding: HashMap<GameInput, PhysicalKey>,
+    mapping: HashSet<PhysicalKey>,
 }
 impl GameInputHandler {
-    /// Spawns a background thread to listen for key events and publish movement coordinates.
-    /// Enables decoupled, real-time input handling for interactive components.
-    pub(crate) fn start(self: Arc<Self>) {
-        thread::spawn(move || loop {
-            match self.event_reader.read_event() {
-                Ok(Event::Key(event)) => {
-                    let coordinate = match event.code {
-                        KeyCode::Left => Coordinate { x: -1.0, y: 0.0 },
-                        KeyCode::Right => Coordinate { x: 1.0, y: 0.0 },
-                        KeyCode::Up => Coordinate { x: 0.0, y: -1.0 },
-                        KeyCode::Down => Coordinate { x: 0.0, y: 1.0 },
-                        _ => continue,
-                    };
-                    debug!("{:?}", coordinate);
+    /// Converts a raw key event into a coordinate, if it matches a known input mapping.
+    ///
+    /// UI overlay and Player actions consume these coordinates
+    pub(crate) fn to_coordinate(&mut self, key: Input) -> Option<Coordinate> {
+        let coordinate = match key {
+            Input::PhysicalKey(key) => {
+                if key.state == ElementState::Pressed {
+                    self.mapping.insert(key.code);
+                } else {
+                    self.mapping.remove(&key.code);
+                    return None;
+                }
 
-                    if let Err(e) = self.publish(coordinate) {
-                        error!("{}", e);
-                    }
+                if self.is_held(&GameInput::PlayerMoveUp)
+                    && self.is_held(&GameInput::PlayerMoveLeft)
+                {
+                    Some(Coordinate { x: -1.0, y: -1.0 })
                 }
-                Ok(_) => {
-                    warn!("{}", GameInputError::NonKeyEvent);
-                }
-                Err(e) => {
-                    error!("{}", GameInputError::IOReadError(e));
+                // Left + Up
+                else if self.is_held(&GameInput::PlayerMoveDown)
+                    && self.is_held(&GameInput::PlayerMoveLeft)
+                {
+                    Some(Coordinate { x: -1.0, y: 1.0 })
+                } else if self.is_held(&GameInput::PlayerMoveDown)
+                    && self.is_held(&GameInput::PlayerMoveRight)
+                {
+                    Some(Coordinate { x: 1.0, y: 1.0 })
+                } else if self.is_held(&GameInput::PlayerMoveUp)
+                    && self.is_held(&GameInput::PlayerMoveRight)
+                {
+                    Some(Coordinate { x: 1.0, y: -1.0 })
+                } else if self.is_held(&GameInput::PlayerMoveLeft) || key.code == KeyCode::ArrowLeft
+                {
+                    Some(Coordinate { x: -1.0, y: 0.0 })
+                } else if self.is_held(&GameInput::PlayerMoveRight)
+                    || key.code == KeyCode::ArrowRight
+                {
+                    Some(Coordinate { x: 1.0, y: 0.0 })
+                } else if self.is_held(&GameInput::PlayerMoveUp) || key.code == KeyCode::ArrowUp {
+                    Some(Coordinate { x: 0.0, y: -1.0 })
+                } else if self.is_held(&GameInput::PlayerMoveDown) || key.code == KeyCode::ArrowDown
+                {
+                    Some(Coordinate { x: 0.0, y: 1.0 })
+                } else {
+                    None
                 }
             }
-        });
+        };
+
+        coordinate
     }
-    pub(crate) fn subscribe(&mut self, subscriber: &mut dyn Subscriber<Coordinate>) {
-        let (tx, rx) = unbounded::<Coordinate>();
-        self.subscribers.push(tx);
-        subscriber.subscribe(rx);
+    pub(crate) fn is_held(&self, input: &GameInput) -> bool {
+        let binding = self.get_binding(input);
+        self.mapping.get(binding).is_some()
     }
-    pub(crate) fn publish(&self, coordinate: Coordinate) -> Result<(), GameInputError> {
-        for sub in &self.subscribers {
-            sub.send(coordinate)?
-        }
-        Ok(())
+    pub(crate) fn get_binding(&self, input: &GameInput) -> &PhysicalKey {
+        self.binding.get(input).unwrap()
     }
-    pub(crate) fn get_keymap(&self, input: &GameInput) -> &KeyCode {
-        self.mapping.get(input).unwrap()
-    }
-    pub(crate) fn update_keymap(&mut self, input: &GameInput, key: KeyCode) {
-        *self.mapping.get_mut(input).unwrap() = key
+    pub(crate) fn update_binding(&mut self, input: &GameInput, key: PhysicalKey) {
+        *self.binding.get_mut(input).unwrap() = key
     }
 }
 impl Default for GameInputHandler {
     fn default() -> Self {
         Self {
-            mapping: [
-                (GameInput::PlayerMoveUp, KeyCode::Up),
-                (GameInput::PlayerMoveLeft, KeyCode::Left),
-                (GameInput::PlayerMoveRight, KeyCode::Right),
-                (GameInput::PlayerMoveDown, KeyCode::Down),
+            binding: [
+                (GameInput::PlayerMoveUp, PhysicalKey::Code(KeyCode::ArrowUp)),
+                (
+                    GameInput::PlayerMoveLeft,
+                    PhysicalKey::Code(KeyCode::ArrowLeft),
+                ),
+                (
+                    GameInput::PlayerMoveRight,
+                    PhysicalKey::Code(KeyCode::ArrowRight),
+                ),
+                (
+                    GameInput::PlayerMoveDown,
+                    PhysicalKey::Code(KeyCode::ArrowDown),
+                ),
             ]
             .into(),
-            subscribers: Vec::default(),
-            event_reader: Arc::new(CrosstermEventReader),
+            mapping: HashSet::new(),
         }
     }
 }
 
-/// Stores a comprehensive list of all input actions
+/// Represents a high-level abstraction of user input events.
+///
+/// Used to decouple game logic from raw platform-specific input events.
+#[derive(Debug, Clone)]
+pub(crate) enum Input {
+    PhysicalKey(PhysicalKeyInfo),
+}
+#[derive(Debug, Clone)]
+pub(crate) struct PhysicalKeyInfo {
+    pub(crate) state: ElementState,
+    pub(crate) code: PhysicalKey,
+}
+
+/// Stores a comprehensive list of all accepted input actions
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) enum GameInput {
     PlayerMoveUp,
@@ -100,247 +152,272 @@ pub(crate) enum GameInput {
     PlayerMoveDown,
 }
 
-#[derive(Debug, Error)]
-enum GameInputError {
-    #[error("unable to read input event (IO failure): {0}")]
-    IOReadError(#[from] std::io::Error),
-    #[error("unable to send key input update to one or more subscribers: {0}")]
-    GameInputBroadcastError(#[from] SendError<Coordinate>),
-    #[error("received non-key event")]
-    NonKeyEvent,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossbeam::channel::Receiver;
-    use crossterm::event::{Event, KeyCode, KeyEvent};
-    use logtest::Logger;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-    use std::{io, thread};
-
-    struct TestSubscriber {
-        pub received: Arc<Mutex<Vec<Coordinate>>>,
-    }
-    impl Subscriber<Coordinate> for TestSubscriber {
-        fn subscribe(&mut self, rx: Receiver<Coordinate>) {
-            let received = Arc::clone(&self.received);
-            std::thread::spawn(move || {
-                for msg in rx.iter() {
-                    received.lock().unwrap().push(msg);
-                }
-            });
-        }
-    }
+    use winit::event::ElementState;
 
     #[test]
-    fn test_all_log_errors() {
-        let logger = Logger::start();
-
-        // --- Produce IOReadError log ---
-        struct SingleRightKeyReader;
-        impl EventReader for SingleRightKeyReader {
-            fn read_event(&self) -> Result<Event, io::Error> {
-                Ok(Event::Key(KeyEvent::from(KeyCode::Right)))
-            }
-        }
-        struct DropReceiverSubscriber;
-        impl Subscriber<Coordinate> for DropReceiverSubscriber {
-            fn subscribe(&mut self, rx: Receiver<Coordinate>) {
-                drop(rx); // Drop the receiver immediately to simulate broken pipe
-            }
-        }
-
-        let mut handler = GameInputHandler {
-            mapping: GameInputHandler::default().mapping,
-            subscribers: Vec::new(),
-            event_reader: Arc::new(SingleRightKeyReader),
-        };
-        let mut subscriber = DropReceiverSubscriber;
-        handler.subscribe(&mut subscriber);
-
-        let handler = Arc::new(handler);
-        handler.start();
-        // Wait for the key event to be processed
-        thread::sleep(Duration::from_millis(50));
-
-        // --- Produce GameInputBroadcastError log ---
-        struct FailingReader;
-        impl EventReader for FailingReader {
-            fn read_event(&self) -> Result<Event, io::Error> {
-                Err(io::Error::new(io::ErrorKind::Other, "simulated failure"))
-            }
-        }
-
-        let mut handler = GameInputHandler {
-            mapping: GameInputHandler::default().mapping,
-            subscribers: Vec::new(),
-            event_reader: Arc::new(FailingReader),
-        };
-        let mut dummy_subscriber = TestSubscriber {
-            received: Arc::new(Mutex::new(Vec::new())),
-        };
-        handler.subscribe(&mut dummy_subscriber);
-
-        let handler = Arc::new(handler);
-        handler.start();
-        // Wait for the IO error to be processed
-        thread::sleep(Duration::from_millis(50));
-
-        // --- Produce NonKeyEvent log ---
-        struct NonKeyEventReader;
-        impl EventReader for NonKeyEventReader {
-            fn read_event(&self) -> Result<Event, std::io::Error> {
-                Ok(Event::Resize(80, 24)) // simulate non-key event
-            }
-        }
-
-        let mut handler = GameInputHandler {
-            mapping: GameInputHandler::default().mapping,
-            subscribers: Vec::new(),
-            event_reader: Arc::new(NonKeyEventReader),
-        };
-        let mut dummy_subscriber = TestSubscriber {
-            received: Arc::new(Mutex::new(Vec::new())),
-        };
-        handler.subscribe(&mut dummy_subscriber);
-
-        let handler = Arc::new(handler);
-        handler.start();
-        // Wait for the non-key event to be processed
-        thread::sleep(Duration::from_millis(50));
-
-        let logs: Vec<_> = logger.collect();
-        assert!(
-            logs.iter().any(|rec| {
-                rec.level() == log::Level::Error
-                    && rec.args().contains("unable to read input event")
-            }),
-            "Expected IOReadError to be logged"
+    fn test_to_coordinate_with_physical_key() {
+        let mut handler = GameInputHandler::default();
+        handler.update_binding(&GameInput::PlayerMoveUp, PhysicalKey::Code(KeyCode::KeyW));
+        handler.update_binding(&GameInput::PlayerMoveLeft, PhysicalKey::Code(KeyCode::KeyA));
+        handler.update_binding(
+            &GameInput::PlayerMoveRight,
+            PhysicalKey::Code(KeyCode::KeyD),
         );
-        assert!(
-            logs.iter().any(|rec| {
-                rec.level() == log::Level::Error
-                    && rec.args().contains("unable to send key input update")
-            }),
-            "Expected GameInputBroadcastError to be logged"
-        );
-        assert!(
-            logs.iter().any(|rec| {
-                rec.level() == log::Level::Warn && rec.args().contains("received non-key event")
-            }),
-            "Expected NonKeyEvent to be logged"
-        );
-    }
+        handler.update_binding(&GameInput::PlayerMoveDown, PhysicalKey::Code(KeyCode::KeyS));
 
-    #[test]
-    fn test_all_direction_key_inputs() {
-        struct MockEventReader {
-            events: Arc<Mutex<Vec<Event>>>,
-        }
-        impl EventReader for MockEventReader {
-            fn read_event(&self) -> Result<Event, std::io::Error> {
-                let mut evs = self.events.lock().unwrap();
-                if let Some(e) = evs.pop() {
-                    Ok(e)
-                } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "No more events",
-                    ))
-                }
-            }
-        }
-
-        let expected_coords = vec![
-            Coordinate { x: -1.0, y: 0.0 }, // Left
-            Coordinate { x: 1.0, y: 0.0 },  // Right
-            Coordinate { x: 0.0, y: -1.0 }, // Up
-            Coordinate { x: 0.0, y: 1.0 },  // Down
+        let test_cases = vec![
+            // Press Left Arrow key (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                Some(Coordinate { x: -1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                None,
+            ),
+            // Press Right Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                Some(Coordinate { x: 1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                None,
+            ),
+            // Press Up Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                Some(Coordinate { x: 0.0, y: -1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                None,
+            ),
+            // Press Down Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                Some(Coordinate { x: 0.0, y: 1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                None,
+            ),
+            // Press UI Only Left Arrow key (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::ArrowLeft),
+                }),
+                Some(Coordinate { x: -1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::ArrowLeft),
+                }),
+                None,
+            ),
+            // Press UI Only Right Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::ArrowRight),
+                }),
+                Some(Coordinate { x: 1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::ArrowRight),
+                }),
+                None,
+            ),
+            // Press UI Only Up Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::ArrowUp),
+                }),
+                Some(Coordinate { x: 0.0, y: -1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::ArrowUp),
+                }),
+                None,
+            ),
+            // Press UI Only Down Arrow (and released)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::ArrowDown),
+                }),
+                Some(Coordinate { x: 0.0, y: 1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::ArrowDown),
+                }),
+                None,
+            ),
+            // Key not tracked
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::Power),
+                }),
+                None,
+            ),
+            // Press Left Arrow and Up Arrow (and released both)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                Some(Coordinate { x: -1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                Some(Coordinate { x: -1.0, y: -1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                None,
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                None,
+            ),
+            // Press Left Arrow and Down Arrow (and released both)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                Some(Coordinate { x: -1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                Some(Coordinate { x: -1.0, y: 1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                None,
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyA),
+                }),
+                None,
+            ),
+            // Press Right Arrow and Down Arrow (and released both)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                Some(Coordinate { x: 1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                Some(Coordinate { x: 1.0, y: 1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyS),
+                }),
+                None,
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                None,
+            ),
+            // Press Right Arrow and Up Arrow (and released both)
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                Some(Coordinate { x: 1.0, y: 0.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Pressed,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                Some(Coordinate { x: 1.0, y: -1.0 }),
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyW),
+                }),
+                None,
+            ),
+            (
+                Input::PhysicalKey(PhysicalKeyInfo {
+                    state: ElementState::Released,
+                    code: PhysicalKey::Code(KeyCode::KeyD),
+                }),
+                None,
+            ),
         ];
 
-        let key_events = vec![
-            Event::Key(KeyEvent::from(KeyCode::Left)),
-            Event::Key(KeyEvent::from(KeyCode::Right)),
-            Event::Key(KeyEvent::from(KeyCode::Up)),
-            Event::Key(KeyEvent::from(KeyCode::Down)),
-        ];
-
-        let events = Arc::new(Mutex::new(key_events.into_iter().rev().collect()));
-        let mock_reader = Arc::new(MockEventReader {
-            events: Arc::clone(&events),
-        });
-
-        let mut handler = GameInputHandler {
-            mapping: GameInputHandler::default().mapping,
-            subscribers: Vec::new(),
-            event_reader: mock_reader,
-        };
-
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut subscriber = TestSubscriber {
-            received: Arc::clone(&received),
-        };
-
-        handler.subscribe(&mut subscriber);
-        let handler_clone = Arc::new(handler);
-        handler_clone.start();
-        // Wait a bit to let all key events process
-        thread::sleep(Duration::from_millis(100));
-
-        let result = received.lock().unwrap();
-        assert_eq!(result.len(), expected_coords.len());
-
-        for (expected, actual) in expected_coords.iter().zip(result.iter()) {
-            assert_eq!(expected, actual);
+        for (input, expected_coord) in test_cases {
+            let result = handler.to_coordinate(input.clone());
+            assert_eq!(result, expected_coord, "Failed for {:?}", input);
         }
-    }
-
-    #[test]
-    fn test_subscribe_and_publish() {
-        let mut handler = GameInputHandler::default();
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let mut test_subscriber = TestSubscriber {
-            received: Arc::clone(&received),
-        };
-
-        handler.subscribe(&mut test_subscriber);
-        let coordinate = Coordinate { x: 1.0, y: 0.0 };
-        handler.publish(coordinate).unwrap();
-
-        std::thread::sleep(std::time::Duration::from_millis(50)); // let thread process
-
-        let received_data = received.lock().unwrap();
-        assert_eq!(received_data.len(), 1);
-        assert_eq!(received_data[0], coordinate);
-    }
-
-    #[test]
-    fn test_keymap_translation() {
-        let handler = GameInputHandler::default();
-        assert_eq!(handler.get_keymap(&GameInput::PlayerMoveUp), &KeyCode::Up);
-        assert_eq!(
-            handler.get_keymap(&GameInput::PlayerMoveLeft),
-            &KeyCode::Left
-        );
-        assert_eq!(
-            handler.get_keymap(&GameInput::PlayerMoveRight),
-            &KeyCode::Right
-        );
-        assert_eq!(
-            handler.get_keymap(&GameInput::PlayerMoveDown),
-            &KeyCode::Down
-        );
-    }
-
-    #[test]
-    fn test_update_keymap() {
-        let mut handler = GameInputHandler::default();
-        handler.update_keymap(&GameInput::PlayerMoveUp, KeyCode::Char('w'));
-        assert_eq!(
-            handler.get_keymap(&GameInput::PlayerMoveUp),
-            &KeyCode::Char('w')
-        );
     }
 }

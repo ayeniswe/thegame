@@ -1,36 +1,39 @@
-use std::{io::stdout, sync::Arc};
-
-use crossterm::{
-    cursor::Hide,
-    execute,
-    terminal::{enable_raw_mode, Clear, ClearType, EnterAlternateScreen},
-};
-use game::Game;
-use input::GameInputHandler;
-use log4rs::config::Deserializers;
-
 mod animator;
+mod event;
 mod game;
 mod input;
 mod layout;
+mod mock;
 mod palette;
+mod prelude;
 mod renderer;
 mod sprite;
 mod sync;
+mod window;
+
+use event::EventHandler;
+use game::GameState;
+use prelude::*;
+use window::GameWindow;
 
 fn main() {
-    let _ = log4rs::init_file("log4rs.yaml", Deserializers::default()).unwrap();
+    let mut event_handler = EventHandler::new();
+
+    let mut window = GameWindow::new(320, 180, "The Little Knight".into(), &event_handler).unwrap();
+    let screen = window.screen();
+    let inner_window = window.window();
     
-    enable_raw_mode().unwrap();
-    execute!(stdout(), EnterAlternateScreen, Clear(ClearType::All), Hide).unwrap();
+    event_handler.register_window(inner_window);
+    
+    let mut game = GameState::new(
+        30,
+        15.0,
+        Coordinate::default(),
+        Knight::new(),
+        screen,
+    );
+    event_handler.subscribe_coordinate(&mut game);
+    game.start();
 
-    // Game creation
-    let mut g = Game::default();
-
-    // Attach game input listener
-    let mut handler = GameInputHandler::default();
-    handler.subscribe(&mut g);
-    Arc::new(handler).start();
-
-    g.start();
+    event_handler.start().unwrap();
 }
