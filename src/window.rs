@@ -17,9 +17,8 @@
 //! - `WindowError`: A custom error type that captures potential errors that can occur during window
 //! creation or pixel surface setup.
 
-use std::sync::{Arc, Mutex};
-
 use pixels::{Pixels, PixelsBuilder, SurfaceTexture};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use winit::{
     dpi::LogicalSize,
@@ -63,7 +62,6 @@ impl Screen for GameWindowScreen {
         for pixel in frame.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[0, 0, 0, 255]); // RGBA black
         }
-        self.surface.render()?;
         Ok(())
     }
     fn render(&mut self) -> Result<(), WindowError> {
@@ -112,8 +110,8 @@ impl<'a> GameWindow<'a> {
 
         Ok(Self {
             screen: Arc::new(Mutex::new(GameWindowScreen {
-                width,
-                height,
+                width: pixel_size.width,
+                height: pixel_size.height,
                 surface,
             })),
             inner: Arc::new(Mutex::new(window)),

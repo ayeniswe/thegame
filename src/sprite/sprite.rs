@@ -1,4 +1,4 @@
-use crate::renderer::Frame;
+use crate::prelude::*;
 
 /// A `Sprite` consists of two or more `Frame`s, where each `Frame` represents a
 /// visual state of the sprite

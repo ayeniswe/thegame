@@ -1,7 +1,4 @@
-use crate::animator::Animation;
 use crate::prelude::*;
-use crate::renderer::{Frame, Pixel};
-use crate::window::WindowError;
 
 pub(crate) struct MockScreen {
     pub(crate) buffer: Vec<u8>,

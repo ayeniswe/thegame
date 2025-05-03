@@ -22,8 +22,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::prelude::*;
-use crate::window::WindowError;
-
 
 /// A trait for animating a `Sprite` on a terminal interface.
 pub trait Animation<S: Screen>: Sprite {
@@ -56,7 +54,6 @@ pub trait Animation<S: Screen>: Sprite {
 
         let frame = &self.frames()[self.frame_pos()];
         for p in &frame.pixels {
-            // let screen = screen.clone();
             // Ignores the mirror direction value since the value must be covered by
             // the frames dimensions
             match mirror {

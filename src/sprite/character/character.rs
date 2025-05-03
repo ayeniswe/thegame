@@ -1,4 +1,4 @@
-use crate::{animator::Animation, window::Screen};
+use crate::prelude::*;
 
 /// The `Character` trait is for state actions that a character can perform
 pub trait Character<S: Screen>: Send + 'static {

@@ -27,7 +27,7 @@
 //! let movement = input_handler.to_coordinate(input);
 //! assert_eq!(movement, Some(Coordinate { x: 0.0, y: -1.0 }));
 //! ```
-use crate::layout::Coordinate;
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet};
 use winit::{
     event::ElementState,

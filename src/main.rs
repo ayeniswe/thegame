@@ -27,7 +27,7 @@ fn main() {
     
     let mut game = GameState::new(
         30,
-        15.0,
+    15.0,
         Coordinate::default(),
         Knight::new(),
         screen,

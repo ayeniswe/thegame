@@ -32,7 +32,7 @@
 //! let frame = Frame::new(vec![pixel], None);
 //! ```
 
-use crate::{layout::MirrorDirectionValue, prelude::*};
+use crate::prelude::*;
 use std::{ops::Range, time::Duration};
 
 /// A container for window-rendered `Pixel`s.
@@ -43,7 +43,7 @@ use std::{ops::Range, time::Duration};
 /// NOTE: `f32` in frame creation context should always be postive since
 /// we coerce between `f32` and `u16`
 #[derive(Clone, Debug)]
-pub(crate) struct Frame {
+pub struct Frame {
     /// A collection of `Pixel` that make up this frame.
     pub(crate) pixels: Vec<Pixel>,
     pub(crate) height: u16,
@@ -92,7 +92,7 @@ impl Frame {
 /// more window cells depending on the `ColorScheme`. Coordinates are specified
 /// in window cell units, but a single `Pixel` may span multiple cells.
 #[derive(Clone, Debug)]
-pub(crate) struct Pixel {
+pub struct Pixel {
     pixels: Vec<(Color, Coordinate)>,
 }
 impl Pixel {
