@@ -1,0 +1,23 @@
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{d} - {l} - {m}\n"
+
+  gameinput:
+    kind: file
+    path: "log/GameInput.log"
+    encoder:
+      pattern: "{d} - {l} - {m}\n"
+
+loggers:
+  thegame::input:
+    level: info
+    appenders:
+      - gameinput
+    additive: false
+
+root:
+  level: debug
+  appenders:
+    - stdout
