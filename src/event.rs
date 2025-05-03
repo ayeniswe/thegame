@@ -22,7 +22,10 @@
 //! handler.start().unwrap(); // blocks forever
 //! ```
 use crossbeam::channel::{unbounded, Sender};
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use winit::{
     error::EventLoopError,
     event::{Event, WindowEvent},
@@ -39,7 +42,7 @@ use crate::prelude::*;
 /// It provides the glue between system-level events and game/application logic.
 pub(crate) struct EventHandler {
     evtloop: EventLoop<()>,
-    windows: HashMap<WindowId, Arc<Mutex<dyn Window>>>,
+    windows: HashMap<WindowId, Arc<Mutex<winit::window::Window>>>,
     input_handler: GameInputHandler,
     coordinate_subscribers: Vec<Sender<Coordinate>>,
 }
@@ -77,7 +80,7 @@ impl EventHandler {
             target.set_control_flow(ControlFlow::Wait);
             // dbg!(&event);
             match event {
-                Event::WindowEvent { event, .. } => match event {
+                Event::WindowEvent { event, window_id } => match event {
                     // Listening for keyboard inputs
                     WindowEvent::KeyboardInput { event, .. } => {
                         let input = Input::PhysicalKey(PhysicalKeyInfo {
@@ -92,7 +95,9 @@ impl EventHandler {
                         }
                     }
                     // Exit Main Window
-                    WindowEvent::CloseRequested => target.exit(),
+                    WindowEvent::CloseRequested => {
+                        target.exit()
+                    },
                     _ => (),
                 },
                 // Event::NewEvents(start_cause) => todo!(),
@@ -111,8 +116,9 @@ impl EventHandler {
     ///
     /// This allows the event loop to correctly dispatch input and OS events
     /// to the appropriate window handler based on the window's ID.
-    pub(crate) fn register_window(&mut self, window: Arc<Mutex<dyn Window>>) {
-        self.windows.insert(window.lock().unwrap().id(), window.clone());
+    pub(crate) fn register_window(&mut self, window: Arc<Mutex<winit::window::Window>>) {
+        self.windows
+            .insert(window.lock().unwrap().id(), window.clone());
     }
     /// Grants access to the underlying event loop instance.
     ///

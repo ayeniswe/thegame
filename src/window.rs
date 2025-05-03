@@ -17,12 +17,12 @@
 //! - `WindowError`: A custom error type that captures potential errors that can occur during window
 //! creation or pixel surface setup.
 
-use pixels::{Pixels, PixelsBuilder, SurfaceTexture};
+use pixels::{wgpu::Color, Pixels, PixelsBuilder, SurfaceTexture};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use winit::{
-    dpi::LogicalSize,
-    window::{WindowBuilder, WindowId},
+    dpi::{LogicalPosition, LogicalSize, PhysicalPosition, Position},
+    window::{WindowBuilder, WindowButtons, WindowId},
 };
 
 use crate::EventHandler;
@@ -33,6 +33,16 @@ use crate::EventHandler;
 /// to expose a common interface for identification and interaction.
 pub trait Window {
     fn id(&self) -> WindowId;
+}
+
+/// The `Screen` trait defines the essential methods required for interacting with a screen or framebuffer.
+/// Implementing this trait allows a type to expose properties which can be used for rendering graphics or manipulating pixel data.
+pub trait Screen: Send + 'static {
+    fn clear(&mut self) -> Result<(), WindowError>;
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn frame_buffer(&mut self) -> &mut [u8];
+    fn render(&mut self) -> Result<(), WindowError>;
 }
 
 /// A concrete implementation of the `Screen` trait backed by a pixel buffer.
@@ -86,7 +96,7 @@ impl<'a> GameWindow<'a> {
     ///
     /// Constructs the actual OS window and sets up the pixel rendering surface.
     ///
-    /// Scaling happens by a `2.0` factor
+    /// Scaling happens by a `4.0` factor
     pub(crate) fn new(
         width: u32,
         height: u32,
@@ -101,6 +111,7 @@ impl<'a> GameWindow<'a> {
             .with_inner_size(window_size)
             .with_resizable(false)
             .with_min_inner_size(pixel_size)
+            .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
             .build(evt.event_loop())?;
 
         // Logical texture to render pixels
@@ -122,7 +133,7 @@ impl<'a> GameWindow<'a> {
     pub(crate) fn screen(&self) -> Arc<Mutex<GameWindowScreen>> {
         self.screen.clone()
     }
-    pub(crate) fn window(&mut self) -> Arc<Mutex<winit::window::Window>> {
+    pub(crate) fn window(&self) -> Arc<Mutex<winit::window::Window>> {
         self.inner.clone()
     }
 }
@@ -132,14 +143,52 @@ impl Window for winit::window::Window {
     }
 }
 
-/// The `Screen` trait defines the essential methods required for interacting with a screen or framebuffer.
-/// Implementing this trait allows a type to expose properties which can be used for rendering graphics or manipulating pixel data.
-pub trait Screen: Send + 'static {
-    fn clear(&mut self) -> Result<(), WindowError>;
-    fn width(&self) -> u32;
-    fn height(&self) -> u32;
-    fn frame_buffer(&mut self) -> &mut [u8];
-    fn render(&mut self) -> Result<(), WindowError>;
+pub(crate) struct WindowDesigner<'a> {
+    inner: Arc<Mutex<winit::window::Window>>,
+    screen: Arc<Mutex<GameWindowScreen>>,
+    title: String,
+    evt: &'a EventHandler,
+}
+impl<'a> WindowDesigner<'a> {
+    pub(crate) fn new(
+        width: u32,
+        height: u32,
+        title: String,
+        evt: &'a EventHandler,
+    ) -> Result<Self, WindowError> {
+        let pixel_size = LogicalSize::new(width, height);
+        let window_size = pixel_size.to_physical(4.0);
+        // Base cross-platform windowing for game view
+        let window = WindowBuilder::new()
+            .with_title(title.clone())
+            .with_inner_size(window_size)
+            .with_min_inner_size(pixel_size)
+            .with_position(Position::Physical(PhysicalPosition::new(0, 10)))
+            .build(evt.event_loop())?;
+
+        // Logical texture to render pixels
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        let surface = PixelsBuilder::new(pixel_size.width, pixel_size.height, surface_texture)
+            .clear_color(Color::WHITE)
+            .build()?;
+
+        Ok(Self {
+            screen: Arc::new(Mutex::new(GameWindowScreen {
+                width: pixel_size.width,
+                height: pixel_size.height,
+                surface,
+            })),
+            inner: Arc::new(Mutex::new(window)),
+            title: title.into(),
+            evt,
+        })
+    }
+    pub(crate) fn window(&self) -> Arc<Mutex<winit::window::Window>> {
+        self.inner.clone()
+    }
+    pub(crate) fn screen(&self) -> Arc<Mutex<GameWindowScreen>> {
+        self.screen.clone()
+    }
 }
 
 #[derive(Debug, Error)]
